@@ -62,6 +62,7 @@ import rolePermissions, {
 import { NcError } from '~/helpers/catchError';
 import { GlobalGuard } from '~/guards/global/global.guard';
 import { JwtStrategy } from '~/strategies/jwt.strategy';
+import { isCeLocalDev } from '~/utils/constants';
 import { RootScopes } from '~/utils/globals';
 import MCPToken from '~/models/MCPToken';
 import Noco from '~/Noco';
@@ -214,7 +215,13 @@ export class ExtractIdsMiddleware implements NestMiddleware, CanActivate {
         const integration = await Integration.get(context, integrationId);
         if (!integration) {
           // CE local-dev: see extensionId branch — skip silently so the
-          // controller's no-op stub can answer.
+          // controller's no-op stub can answer. Default (production):
+          // throw 404 like the original behaviour.
+          if (isCeLocalDev()) {
+            // intentionally empty
+          } else {
+            NcError.get(context).integrationNotFound(integrationId);
+          }
         }
       } else if (tableId) {
         const model = await Model.get(context, tableId);
@@ -458,11 +465,11 @@ export class ExtractIdsMiddleware implements NestMiddleware, CanActivate {
           // /api/v2/extensions/:id for arbitrary ids (PostGIS, citext,
           // integration extensions). The real behaviour throws 404 here,
           // which the patched UI surfaces as a console error. Skip the
-          // lookup silently so the request reaches the controller, where
-          // the patched route returns null.
-        } else {
-          // (extension found) — leave ncBaseId unset; controller will
-          // return null itself.
+          // lookup silently when NC_CE_LOCAL_DEV=1 so the request reaches
+          // the controller, where the patched route returns null.
+          if (!isCeLocalDev()) {
+            NcError.genericNotFound('Extension', extensionId);
+          }
         }
       }
 
@@ -577,7 +584,13 @@ export class ExtractIdsMiddleware implements NestMiddleware, CanActivate {
       const integration = await Integration.get(context, params.integrationId);
       if (!integration) {
         // CE local-dev: see extensionId branch — skip silently so the
-        // controller's no-op stub can answer.
+        // controller's no-op stub can answer. Default (production):
+        // throw 404 like the original behaviour.
+        if (isCeLocalDev()) {
+          // intentionally empty
+        } else {
+          NcError.get(context).integrationNotFound(params.integrationId);
+        }
       } else {
         req.ncWorkspaceId = integration.fk_workspace_id;
       }
@@ -862,7 +875,11 @@ export class ExtractIdsMiddleware implements NestMiddleware, CanActivate {
 
       if (!extension) {
         // CE local-dev: see the matching branch above. Skip silently
-        // instead of throwing so the controller's no-op stub can answer.
+        // instead of throwing when NC_CE_LOCAL_DEV=1 so the controller's
+        // no-op stub can answer. Default (production): throw 404.
+        if (!isCeLocalDev()) {
+          NcError.genericNotFound('Extension', req.params.extensionId);
+        }
       } else {
         req.ncBaseId = extension.base_id;
       }

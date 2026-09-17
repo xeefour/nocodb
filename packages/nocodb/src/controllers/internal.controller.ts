@@ -22,6 +22,7 @@ import { markPersonalViewIfNeeded } from 'src/middlewares/extract-ids/extract-id
 import type { InternalApiModule } from '~/utils/internal-type';
 import { sourceRestrictions } from '~/utils/acl';
 import { OPERATION_SCOPES } from '~/controllers/internal/operationScopes';
+import { isCeLocalDev } from '~/utils/constants';
 import { INTERNAL_API_MODULE_PROVIDER_KEY } from '~/utils/internal-type';
 import { TenantContext } from '~/decorators/tenant-context.decorator';
 import { GlobalGuard } from '~/guards/global/global.guard';
@@ -245,28 +246,28 @@ export class InternalController {
     @Query('operation') operation: keyof typeof OPERATION_SCOPES,
     @Req() req: NcRequest,
   ): InternalGETResponseType {
-    // Local patch: bypass ACL check for org-scoped operations like
-    // baseListAll. The CE ACL middleware still tries to resolve the
-    // baseId from the URL and rejects when it's 'nc' (the org-scope
-    // sentinel), even though baseListAll is org-scoped and doesn't
-    // need a real base. Skip checkAcl when the operation's scope
-    // is 'org' and the baseId is the special placeholder.
-    //
-    // Additionally, the patched CE UI sends operations the CE backend
-    // doesn't know about (e.g. teamList, workspaceTeamList — the EE Team
-    // module isn't compiled in). For those, OPERATION_SCOPES has no entry
-    // so `scope` is undefined and the ACL middleware would default to
-    // 'base', failing with 403 because admin users have no base_roles.
-    // Short-circuit: unknown operation → return empty result so the
-    // frontend's call resolves cleanly instead of spamming 403s in the
-    // console.
     const scope = OPERATION_SCOPES[operation];
-    if (!scope) {
-      return {} as InternalGETResponseType;
-    }
-    if (!(scope === 'org' && baseId === 'nc')) {
+
+    // CE local-dev bypass: the patched CE UI sends operations the CE
+    // backend doesn't know about (teamList, workspaceTeamList — EE-only)
+    // and baseListAll with baseId='nc' (the org-scope sentinel). In
+    // production these would naturally 404 / 403; in local dev they
+    // surface as console noise, so we swallow them only when
+    // NC_CE_LOCAL_DEV=1.
+    if (isCeLocalDev()) {
+      if (!scope) return {} as InternalGETResponseType;
+      if (scope === 'org' && baseId === 'nc') {
+        // Skip ACL for org-scoped ops with the 'nc' sentinel.
+      } else {
+        await this.checkAcl(operation, req, scope);
+      }
+    } else {
+      if (!scope) {
+        return NcError.notFound('Operation') as InternalGETResponseType;
+      }
       await this.checkAcl(operation, req, scope);
     }
+
     const module = this.internalApiModuleMap['GET'][operation];
 
     if (module) {
@@ -308,17 +309,23 @@ export class InternalController {
       ) as InternalPOSTResponseType;
     }
 
-    // Same CE-patch bypass as the GET handler: skip ACL for unknown
-    // operations the EE module map doesn't know how to handle.
+    // Same bypass shape as the GET handler — see the comment there.
     const postScope = OPERATION_SCOPES[operation];
-    if (!postScope) {
-      return {} as InternalPOSTResponseType;
+    if (isCeLocalDev()) {
+      if (!postScope) return {} as InternalPOSTResponseType;
+      if (postScope === 'org' && baseId === 'nc') {
+        // skip ACL
+      } else {
+        await this.checkAcl(operation, req, postScope);
+      }
+    } else {
+      if (!postScope) {
+        return NcError.notFound('Operation') as InternalPOSTResponseType;
+      }
+      await this.checkAcl(operation, req, postScope);
     }
 
-    await this.checkAcl(operation, req, postScope);
-
     const module = this.internalApiModuleMap['POST'][operation];
-
 
     if (module) {
       return module.handle(context, {

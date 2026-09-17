@@ -113,12 +113,22 @@ export class SkillsController {
   }
 
   @Get('/skills/:skillId')
-  async get(@Param('skillId') skillId: string) {
+  async get(@Param('skillId') skillId: string, @Req() req: NcRequest) {
     const row = await Noco.ncMeta
       .knexConnection(MetaTable.SKILLS)
       .where('id', skillId)
       .first();
     if (!row) return { error: 'Skill not found' };
+    // Tenant guard: when the skill is workspace-scoped, refuse to leak
+    // it to a caller outside that workspace.
+    if (
+      row.scope === 'workspace' &&
+      req.user?.fk_workspace_id &&
+      row.scope_id &&
+      row.scope_id !== req.user.fk_workspace_id
+    ) {
+      return { error: 'Skill not found' };
+    }
     return mapSkill(row);
   }
 
@@ -153,7 +163,29 @@ export class SkillsController {
   }
 
   @Patch('/skills/:skillId')
-  async update(@Param('skillId') skillId: string, @Body() body: any) {
+  async update(
+    @Param('skillId') skillId: string,
+    @Body() body: any,
+    @Req() req: NcRequest,
+  ) {
+    // Confirm the row exists and (when workspace-scoped) belongs to
+    // the caller's workspace. Org-scoped skills require a separate
+    // admin check; this stub does not enforce that and lets
+    // workspace-level changes flow through.
+    const existing = await Noco.ncMeta
+      .knexConnection(MetaTable.SKILLS)
+      .where('id', skillId)
+      .first();
+    if (!existing) return { error: 'Skill not found' };
+    if (
+      existing.scope === 'workspace' &&
+      req.user?.fk_workspace_id &&
+      existing.scope_id &&
+      existing.scope_id !== req.user.fk_workspace_id
+    ) {
+      return { error: 'Skill not found' };
+    }
+
     const patch: Record<string, any> = {};
     if (body?.title !== undefined) patch.title = body.title;
     if (body?.description !== undefined) patch.description = body.description;
@@ -179,7 +211,20 @@ export class SkillsController {
   }
 
   @Delete('/skills/:skillId')
-  async delete(@Param('skillId') skillId: string) {
+  async delete(@Param('skillId') skillId: string, @Req() req: NcRequest) {
+    const existing = await Noco.ncMeta
+      .knexConnection(MetaTable.SKILLS)
+      .where('id', skillId)
+      .first();
+    if (!existing) return { success: true };
+    if (
+      existing.scope === 'workspace' &&
+      req.user?.fk_workspace_id &&
+      existing.scope_id &&
+      existing.scope_id !== req.user.fk_workspace_id
+    ) {
+      return { success: true };
+    }
     await Noco.ncMeta
       .knexConnection(MetaTable.SKILLS)
       .where('id', skillId)

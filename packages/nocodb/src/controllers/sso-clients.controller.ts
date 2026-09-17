@@ -63,18 +63,36 @@ function mapRow(row: SsoClientRow) {
 export class SsoClientsController {
   @Get('/sso-clients')
   async list(@Req() req: NcRequest) {
+    // Tenant scope: only return SSO clients owned by the same workspace
+    // as the caller. Without this filter, every authed user would see
+    // SSO configs (which typically contain client_secret / SAML keys)
+    // from every other workspace in the install.
+    const workspaceId = req.user?.fk_workspace_id;
+    if (!workspaceId) return { list: [] };
+
     const rows = await Noco.ncMeta
       .knexConnection(MetaTable.SSO_CLIENT)
       .where('deleted', false)
+      .andWhere('fk_workspace_id', workspaceId)
       .orderBy('created_at', 'desc');
     return { list: rows.map(mapRow) };
   }
 
   @Get('/sso-clients/:id')
-  async get(@Param('id') id: string) {
+  async get(@Param('id') id: string, @Req() req: NcRequest) {
+    const workspaceId = req.user?.fk_workspace_id;
     const row = await Noco.ncMeta
       .knexConnection(MetaTable.SSO_CLIENT)
       .where('id', id)
+      .andWhere((qb) => {
+        // Workspace-scoped lookup when possible; falls back to
+        // fk_org_id for users without a workspace binding (super admins).
+        if (workspaceId) {
+          qb.where('fk_workspace_id', workspaceId).orWhereNotNull('fk_org_id');
+        } else {
+          qb.whereNull('fk_org_id');
+        }
+      })
       .first();
     if (!row) return { error: 'SSO client not found' };
     return mapRow(row);
@@ -105,7 +123,26 @@ export class SsoClientsController {
   }
 
   @Patch('/sso-clients/:id')
-  async update(@Param('id') id: string, @Body() body: any) {
+  async update(
+    @Param('id') id: string,
+    @Body() body: any,
+    @Req() req: NcRequest,
+  ) {
+    // Confirm the row belongs to the caller's workspace before mutating.
+    const workspaceId = req.user?.fk_workspace_id;
+    const existing = await Noco.ncMeta
+      .knexConnection(MetaTable.SSO_CLIENT)
+      .where('id', id)
+      .first();
+    if (!existing) return { error: 'SSO client not found' };
+    if (
+      workspaceId &&
+      existing.fk_workspace_id &&
+      existing.fk_workspace_id !== workspaceId
+    ) {
+      return { error: 'SSO client not found' };
+    }
+
     const patch: Record<string, any> = {};
     if (body?.type !== undefined) patch.type = body.type;
     if (body?.title !== undefined) patch.title = body.title;
@@ -133,7 +170,22 @@ export class SsoClientsController {
   }
 
   @Delete('/sso-clients/:id')
-  async delete(@Param('id') id: string) {
+  async delete(@Param('id') id: string, @Req() req: NcRequest) {
+    // Confirm the row belongs to the caller's workspace before deleting.
+    const workspaceId = req.user?.fk_workspace_id;
+    const existing = await Noco.ncMeta
+      .knexConnection(MetaTable.SSO_CLIENT)
+      .where('id', id)
+      .first();
+    if (!existing) return { success: true };
+    if (
+      workspaceId &&
+      existing.fk_workspace_id &&
+      existing.fk_workspace_id !== workspaceId
+    ) {
+      return { error: 'SSO client not found' };
+    }
+
     await Noco.ncMeta
       .knexConnection(MetaTable.SSO_CLIENT)
       .where('id', id)

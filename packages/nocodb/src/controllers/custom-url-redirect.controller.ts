@@ -47,6 +47,16 @@ export class CustomUrlRedirectController {
       return;
     }
 
+    // Open-redirect guard: original_path MUST be a same-host relative
+    // URL (start with '/'). Anything starting with '//', 'http:',
+    // 'https:', 'javascript:', etc. is dropped to a 404 so a malicious
+    // row inserted into nc_custom_urls can't phish visitors via the
+    // public share URL.
+    if (typeof row.original_path !== 'string' || !row.original_path.startsWith('/') || row.original_path.startsWith('//')) {
+      res.status(404).json({ msg: `Cannot GET /p/${trimmed}` });
+      return;
+    }
+
     // 302 redirect to the actual share URL. Express normalises
     // relative paths so `/nc/view/...` resolves against the current
     // host automatically.

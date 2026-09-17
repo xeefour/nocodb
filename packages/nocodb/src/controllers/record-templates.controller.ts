@@ -147,7 +147,24 @@ export class RecordTemplatesController {
     @Param('baseId') baseId: string,
     @Param('templateId') templateId: string,
     @Body() body: any,
+    @Req() req: NcRequest,
   ) {
+    const userId = req.user?.id;
+
+    // Ownership guard: confirm the template exists AND was created by
+    // the caller (or the caller is the base owner). Without this any
+    // authed user could overwrite a template in any base they could
+    // guess the id of.
+    const existing = await Noco.ncMeta
+      .knexConnection(MetaTable.RECORD_TEMPLATES)
+      .where('base_id', baseId)
+      .andWhere('id', templateId)
+      .first();
+    if (!existing) return { error: 'Record template not found' };
+    if (existing.created_by && userId && existing.created_by !== userId) {
+      return { error: 'Record template not found' };
+    }
+
     const patch: Record<string, any> = {};
     if (typeof body?.title === 'string') patch.title = body.title;
     if (body?.description !== undefined) patch.description = body.description;
@@ -177,7 +194,18 @@ export class RecordTemplatesController {
   async delete(
     @Param('baseId') baseId: string,
     @Param('templateId') templateId: string,
+    @Req() req: NcRequest,
   ) {
+    const userId = req.user?.id;
+    const existing = await Noco.ncMeta
+      .knexConnection(MetaTable.RECORD_TEMPLATES)
+      .where('base_id', baseId)
+      .andWhere('id', templateId)
+      .first();
+    if (!existing) return { success: true };
+    if (existing.created_by && userId && existing.created_by !== userId) {
+      return { success: true };
+    }
     await Noco.ncMeta
       .knexConnection(MetaTable.RECORD_TEMPLATES)
       .where('base_id', baseId)

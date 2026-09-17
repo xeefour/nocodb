@@ -18,7 +18,7 @@ export const JwtStrategyProvider: Provider = {
         ExtractJwt.fromHeader('xc-auth'),
         (req: any) => req?.cookies?.nc_token || null,
       ]),
-      // expiresIn: '7d',
+      // expiresIn: '10h',
       passReqToCallback: true,
       secretOrKey: config.auth.jwt.secret,
       ...config.auth.jwt.options,

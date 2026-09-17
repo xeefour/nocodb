@@ -62,11 +62,11 @@ export function addAxiosInterceptors(api: Api<any>, skipSocket = false) {
         return Promise.reject(error)
       }
 
-      // Local patch: do NOT auto sign-out on 401. Propagate the error
-      // so the calling UI can show it (or ignore it). The auto-signout
-      // on every API 401 was kicking the user out of the app even when
-      // the failure was a single endpoint with no real auth problem.
       if (error.config.url === '/auth/token/refresh') {
+        await state.signOut({
+          redirectToSignin: !route.value.meta.public,
+          skipApiCall: true,
+        })
         return Promise.reject(error)
       }
 
@@ -79,6 +79,10 @@ export function addAxiosInterceptors(api: Api<any>, skipSocket = false) {
           })
 
           if (!token) {
+            await state.signOut({
+              redirectToSignin: !isSharedPage,
+              skipApiCall: true,
+            })
             return Promise.reject(error)
           }
 
@@ -94,6 +98,10 @@ export function addAxiosInterceptors(api: Api<any>, skipSocket = false) {
 
           // if shared execution error, don't sign out
           if (!(refreshTokenError instanceof SharedExecutionError)) {
+            await state.signOut({
+              redirectToSignin: !isSharedPage,
+              skipApiCall: true,
+            })
             return Promise.reject(error)
           }
 

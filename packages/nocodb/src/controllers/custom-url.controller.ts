@@ -4,10 +4,12 @@ import {
   Get,
   Param,
   Post,
+  Req,
   UseGuards,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { MetaApiLimiterGuard } from '~/guards/meta-api-limiter.guard';
+import { NcRequest } from '~/interface/config';
 import { MetaTable } from '~/utils/globals';
 import Noco from '~/Noco';
 
@@ -57,10 +59,22 @@ export class CustomUrlController {
   }
 
   @Get('/meta/custom-url/get-by-id/:id')
-  async getById(@Param('id') id: string) {
+  async getById(@Param('id') id: string, @Req() req: NcRequest) {
+    const workspaceId = req.user?.fk_workspace_id;
     const row = await Noco.ncMeta
       .knexConnection(MetaTable.CUSTOM_URLS)
       .where('id', id)
+      .andWhere((qb) => {
+        // Tenant scope: workspace-scoped rows only leak to callers
+        // inside that workspace; org-scoped rows fall back to the
+        // org path. Without this any authed user could read the
+        // original_path of any custom URL in the install.
+        if (workspaceId) {
+          qb.where('fk_workspace_id', workspaceId).orWhereNotNull('fk_org_id');
+        } else {
+          qb.whereNull('fk_workspace_id');
+        }
+      })
       .first();
     if (!row) return { error: 'Custom URL not found' };
     return row;

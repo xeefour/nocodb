@@ -214,6 +214,18 @@ export class BookmarksController {
       return { error: 'fk_group_id, target_type and target_id are required' };
     }
 
+    // Tenant guard: confirm the target group belongs to this user
+    // before writing a bookmark into it. Without this check, user A
+    // could inject bookmarks into user B's group just by passing
+    // B's group id in the request body.
+    const groupOwner = await Noco.ncMeta
+      .knexConnection(MetaTable.BOOKMARK_GROUPS)
+      .where('id', body.fk_group_id)
+      .first();
+    if (!groupOwner || groupOwner.fk_user_id !== userId) {
+      return { error: 'fk_group_id not found' };
+    }
+
     const newId = `bmk${nanoidBookmark()}`;
 
     await Noco.ncMeta.knexConnection(MetaTable.BOOKMARKS).insert({
@@ -248,7 +260,18 @@ export class BookmarksController {
 
     const patch: Record<string, any> = {};
     if (typeof body?.title === 'string') patch.title = body.title;
-    if (typeof body?.fk_group_id === 'string') patch.fk_group_id = body.fk_group_id;
+    if (typeof body?.fk_group_id === 'string') {
+      // If the caller is moving the bookmark to another group, confirm
+      // the destination group belongs to them.
+      const groupOwner = await Noco.ncMeta
+        .knexConnection(MetaTable.BOOKMARK_GROUPS)
+        .where('id', body.fk_group_id)
+        .first();
+      if (!groupOwner || groupOwner.fk_user_id !== userId) {
+        return { error: 'fk_group_id not found' };
+      }
+      patch.fk_group_id = body.fk_group_id;
+    }
     if (typeof body?.icon === 'string') patch.icon = body.icon;
     if (typeof body?.icon_color === 'string') patch.icon_color = body.icon_color;
     if (typeof body?.icon_type === 'string') patch.icon_type = body.icon_type;

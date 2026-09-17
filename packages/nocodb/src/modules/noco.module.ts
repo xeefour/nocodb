@@ -123,12 +123,12 @@ import { CustomUrlRedirectController } from '~/controllers/custom-url-redirect.c
 import { SsoClientsController } from '~/controllers/sso-clients.controller';
 import { SkillsController } from '~/controllers/skills.controller';
 import { DashboardsController } from '~/controllers/dashboards.controller';
-// AStubController (formerly EeStubController) lives in
-// NotFoundHandlerModule (above) so its specific @All paths register
-// before the /api/v{1,2}/* wildcards. The "A" prefix ensures the
-// class sorts alphabetically before ExtensionsController and
-// IntegrationsController, which both have overlapping @Acl-decorated
-// routes that would otherwise shadow the catch-all.
+// Note: the EE-stub catch-all (`/api/v{1,2}/*` and `/api/v3/*`
+// wildcards returning empty shapes for known EE paths) lives inside
+// ApiVersionNotFoundController and NotFoundV3Controller respectively,
+// which are registered in NotFoundHandlerModule. They must be in that
+// module — not here — so the wildcard controllers resolve only after
+// the more specific controllers above have had a chance to match.
 import { ViewRowColorV3Service } from '~/services/v3/view-row-color-v3.service';
 import { DependencyService } from '~/services/dependency.service';
 

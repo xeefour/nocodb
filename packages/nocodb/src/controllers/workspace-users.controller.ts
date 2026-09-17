@@ -72,14 +72,31 @@ export class WorkspaceUsersController {
 
   // CE stub: fetch a single workspace by id.
   @Get(['/api/v1/workspaces/:workspaceId', '/api/v2/workspaces/:workspaceId'])
-  async getOne(@Param('workspaceId') workspaceId: string) {
+  async getOne(@Param('workspaceId') workspaceId: string, @Req() req: NcRequest) {
     const ncMeta = Noco.ncMeta;
+    const userId = req.user?.id;
+
+    // Tenant guard: a user can only fetch a workspace they're a member
+    // of (or that they own, for legacy single-workspace on-prem setups
+    // where the creator wasn't added as a workspace_user row).
+    const member = userId
+      ? await ncMeta
+          .knexConnection(MetaTable.WORKSPACE_USER)
+          .where('fk_user_id', userId)
+          .andWhere('fk_workspace_id', workspaceId)
+          .andWhere('deleted', false)
+          .first()
+      : null;
+
     const row = await ncMeta
       .knexConnection(MetaTable.WORKSPACE)
       .where('id', workspaceId)
       .andWhere('deleted', false)
       .first();
     if (!row) return { error: 'Workspace not found' };
+    if (!member && row.fk_user_id !== userId) {
+      return { error: 'Workspace not found' };
+    }
     return {
       id: row.id,
       title: row.title,
@@ -149,17 +166,22 @@ export class WorkspaceUsersController {
   }
 
   // CE stub: list bases belonging to a workspace. CE doesn't enforce
-  // workspace→base membership, so we return every non-deleted base —
-  // matches the EE behavior for single-workspace on-prem installs.
+  // workspace→base membership, so we return bases that explicitly
+  // belong to this workspace OR (for legacy on-prem) every non-deleted
+  // base — matches the EE behavior for single-workspace installs where
+  // fk_workspace_id may be null on legacy rows.
   @Get([
     '/api/v1/workspaces/:workspaceId/bases',
     '/api/v2/workspaces/:workspaceId/bases',
   ])
-  async listBases(@Param('workspaceId') _workspaceId: string) {
+  async listBases(@Param('workspaceId') workspaceId: string) {
     const ncMeta = Noco.ncMeta;
     const rows = await ncMeta
       .knexConnection(MetaTable.PROJECT)
       .where('deleted', false)
+      .andWhere((qb) => {
+        qb.where('fk_workspace_id', workspaceId).orWhereNull('fk_workspace_id');
+      })
       .orderBy('created_at', 'asc');
 
     return {
@@ -170,7 +192,7 @@ export class WorkspaceUsersController {
         description: b.description,
         color: b.color,
         status: b.status,
-        fk_workspace_id: b.fk_workspace_id ?? _workspaceId,
+        fk_workspace_id: b.fk_workspace_id ?? workspaceId,
         created_at: b.created_at,
         updated_at: b.updated_at,
       })),

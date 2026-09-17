@@ -1,7 +1,11 @@
 # syntax=docker/dockerfile:1.7
-# Patched CE build for local dev: flips isEE/isOnPrem constants to true.
-# Build context must be repo root. Resulting image replaces only the
-# rspack bundle inside nocodb/nocodb:latest.
+# Patched CE build for local dev: same rspack bundle as nocodb/nocodb
+# but rebuilt from this tree. The runtime stage enables the EE-flavored
+# feature flags via env (NC_IS_EE=1 + NC_CE_LOCAL_DEV=1) so the patched
+# CE UI's local-dev shortcuts in the controllers activate without
+# touching the public CE defaults. Build context must be repo root.
+# Resulting image replaces only the rspack bundle + nuxt SPA inside
+# nocodb/nocodb:latest.
 
 ARG NODE_VERSION=24
 
@@ -70,3 +74,12 @@ COPY --from=builder /src/packages/nocodb/dist/public    /usr/src/app/public
 # just rebuilt locally — content is identical). The backend serves
 # this directory as static UI.
 COPY --from=builder /src/packages/nc-gui/.output/public /usr/src/app/docker/nc-gui
+
+# Enable the CE local-dev flag set: NC_IS_EE + NC_IS_ONPREM so the
+# patched UI's EE-only panels light up; NC_CE_LOCAL_DEV so the
+# controller-level ACL/tenant bypasses that survive the CE build
+# (extract-ids silent-skip, internal.controller unknown-op, etc.)
+# activate. Remove these for a vanilla CE image.
+ENV NC_IS_EE=1 \
+    NC_IS_ONPREM=1 \
+    NC_CE_LOCAL_DEV=1
