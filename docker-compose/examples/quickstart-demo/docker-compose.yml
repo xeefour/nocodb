@@ -1,12 +1,28 @@
 services:
 
   nocodb:
-    image: nocodb/nocodb:latest
+    image: nocodb-local:latest
     environment:
       NC_DB: 'pg://db:5432?u=nocodb&p=quickstart_demo_pw_change_me&d=nocodb'
       NC_REDIS_URL: 'redis://redis:6379'
       NC_SITE_URL: 'http://localhost:8080'
       NC_DISABLE_MUX: 'true'
+      # JWT lifetime — local dev stack keeps a 7-day session so the
+      # browser tab survives overnight without forcing a re-login. The
+      # cookie set by setAuthCookie() reads this same value, so token
+      # expiry and cookie expiry stay in sync.
+      NC_JWT_EXPIRES_IN: '7d'
+      # JWT signing secret — pinned to a fixed UUID so token signatures
+      # remain valid across container restarts. Without this the
+      # backend falls back to reading from nc_store (DB) on first boot,
+      # but a wiped DB / fresh node_modules volume re-generates a new
+      # random secret — invalidating every previously-issued token.
+      NC_AUTH_JWT_SECRET: 'dev-stack-pinned-jwt-secret-do-not-use-in-prod-a1b2c3d4e5f6'
+      # Force-reset the admin password on container start. NocoDB's
+      # initAdminFromEnv helper reads these on boot, looks up the user
+      # by NC_ADMIN_EMAIL, and overwrites the bcrypt password hash.
+      NC_ADMIN_EMAIL: 'xeefour@gmail.com'
+      NC_ADMIN_PASSWORD: 'Bz@1234567'
     depends_on:
       db:
         condition: service_healthy
@@ -27,12 +43,19 @@ services:
       start_period: 30s
 
   worker:
-    image: nocodb/nocodb:latest
+    image: nocodb-local:latest
     environment:
       NC_DB: 'pg://db:5432?u=nocodb&p=quickstart_demo_pw_change_me&d=nocodb'
       NC_REDIS_URL: 'redis://redis:6379'
       NC_SITE_URL: 'http://localhost:8080'
       NC_WORKER_CONTAINER: 'true'
+      # Same JWT secret as the nocodb service above — both services
+      # must sign/verify with the same key, and pinning it here means
+      # a worker restart doesn't invalidate tokens minted by the
+      # nocodb service (and vice versa).
+      NC_AUTH_JWT_SECRET: 'dev-stack-pinned-jwt-secret-do-not-use-in-prod-a1b2c3d4e5f6'
+      NC_ADMIN_EMAIL: 'xeefour@gmail.com'
+      NC_ADMIN_PASSWORD: 'Bz@1234567'
     depends_on:
       nocodb:
         condition: service_healthy

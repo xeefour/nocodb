@@ -23,7 +23,7 @@ export function genJwt(
     },
     config.auth.jwt.secret,
     // todo: better typing
-    { expiresIn: '10h', ...(config.auth.jwt.options as any), ...jwtOptions },
+    { expiresIn: '7d', ...(config.auth.jwt.options as any), ...jwtOptions },
   );
 }
 
@@ -53,7 +53,7 @@ export function setAuthCookie(res: Response, token: string): void {
     sameSite: 'lax',
     secure: !!ncSiteUrl?.startsWith('https'),
     path: '/api',
-    maxAge: 10 * 60 * 60 * 1000, // 10 hours — match JWT expiry
+    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days — match JWT expiry (NC_JWT_EXPIRES_IN)
   });
 }
 

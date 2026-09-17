@@ -491,6 +491,14 @@ export default class Base implements BaseType {
       'auto_update',
       'is_sandbox_production',
       'is_sandbox',
+      // Allow the EE-flavoured share-modal (CE has no custom-URL editor,
+      // but the patched frontend sends `fk_custom_url_id` on PATCH
+      // /api/v2/meta/bases/:id/shared) to persist the link. Without
+      // this, the custom_url row is created in nc_custom_urls_v2 but
+      // the base never points at it — re-opening the modal looks up
+      // the row by `base.fk_custom_url_id`, finds nothing, and the UI
+      // reports "no custom URL set".
+      'fk_custom_url_id',
     ]);
 
     // stringify meta

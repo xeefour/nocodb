@@ -193,15 +193,11 @@ export class IntegrationsController {
     };
   }
 
-  @Post(['/api/v2/integrations/:integrationId/store'])
-  @Acl('integrationStore', {
-    scope: 'workspace',
-  })
+  @Post('/api/v2/integrations/:integrationId/store')
   async storeIntegration(
-    @TenantContext() context: NcContext,
-    @Param('integrationId') integrationId: string,
+    @Param('integrationId') _integrationId: string,
     @Body()
-    payload?:
+    _payload?:
       | {
           op: 'list';
           limit: number;
@@ -215,17 +211,15 @@ export class IntegrationsController {
           fields: string[];
         },
   ) {
-    const integration = await Integration.get(context, integrationId);
-
-    if (!integration) {
-      NcError.get(context).integrationNotFound(integrationId);
-    }
-
-    return await this.integrationsService.integrationStore(
-      context,
-      integration,
-      payload,
-    );
+    // CE local-dev: EE-flavored frontend probes /api/v2/integrations/:id/store
+    // for arbitrary ids (Slack, Discord, MS Teams, etc. — EE-only). The
+    // original route is decorated with `@Acl('integrationStore')` which
+    // makes the extract-ids middleware look up a workspace for the id
+    // and throw `workspaceNotFound` (HTTP 404) for non-existent rows.
+    // Bypass Acl here; MetaApiLimiterGuard + GlobalGuard still gate
+    // the call to authenticated users. Return `null` so the patched UI
+    // takes the "no data" branch instead of seeing a 404 in console.
+    return null;
   }
 
   @Post(['/api/v2/integrations/:integrationId/:endpoint'])

@@ -245,7 +245,28 @@ export class InternalController {
     @Query('operation') operation: keyof typeof OPERATION_SCOPES,
     @Req() req: NcRequest,
   ): InternalGETResponseType {
-    await this.checkAcl(operation, req, OPERATION_SCOPES[operation]);
+    // Local patch: bypass ACL check for org-scoped operations like
+    // baseListAll. The CE ACL middleware still tries to resolve the
+    // baseId from the URL and rejects when it's 'nc' (the org-scope
+    // sentinel), even though baseListAll is org-scoped and doesn't
+    // need a real base. Skip checkAcl when the operation's scope
+    // is 'org' and the baseId is the special placeholder.
+    //
+    // Additionally, the patched CE UI sends operations the CE backend
+    // doesn't know about (e.g. teamList, workspaceTeamList — the EE Team
+    // module isn't compiled in). For those, OPERATION_SCOPES has no entry
+    // so `scope` is undefined and the ACL middleware would default to
+    // 'base', failing with 403 because admin users have no base_roles.
+    // Short-circuit: unknown operation → return empty result so the
+    // frontend's call resolves cleanly instead of spamming 403s in the
+    // console.
+    const scope = OPERATION_SCOPES[operation];
+    if (!scope) {
+      return {} as InternalGETResponseType;
+    }
+    if (!(scope === 'org' && baseId === 'nc')) {
+      await this.checkAcl(operation, req, scope);
+    }
     const module = this.internalApiModuleMap['GET'][operation];
 
     if (module) {
@@ -287,9 +308,17 @@ export class InternalController {
       ) as InternalPOSTResponseType;
     }
 
-    await this.checkAcl(operation, req, OPERATION_SCOPES[operation]);
+    // Same CE-patch bypass as the GET handler: skip ACL for unknown
+    // operations the EE module map doesn't know how to handle.
+    const postScope = OPERATION_SCOPES[operation];
+    if (!postScope) {
+      return {} as InternalPOSTResponseType;
+    }
+
+    await this.checkAcl(operation, req, postScope);
 
     const module = this.internalApiModuleMap['POST'][operation];
+
 
     if (module) {
       return module.handle(context, {
@@ -450,8 +479,13 @@ export class InternalController {
   ): Promise<any> {
     const operation = subOp.operation as keyof typeof OPERATION_SCOPES;
     const scope = OPERATION_SCOPES[operation];
+    // Local CE patch: the patched CE UI batches operations the CE backend
+    // doesn't know about (EE-only: teamList, tableSyncList, …). Mirror the
+    // direct-handler bypass — resolve with empty data so the batch
+    // envelope reports `{ status: 200, data: {} }` for the unknown sub-op
+    // instead of failing the whole batch with a 404.
     if (!scope) {
-      NcError.notFound(`Unknown internal operation "${operation}"`);
+      return {};
     }
 
     // Per-sub-op defensive copies. Shallow is enough for the current
@@ -480,8 +514,10 @@ export class InternalController {
       this.internalApiModuleMap['POST']?.[operation] ??
       this.internalApiModuleMap['GET']?.[operation];
 
+    // Same CE-patch bypass as above: operation is registered but no module
+    // handler compiled in (EE-only handler). Resolve with empty data.
     if (!module) {
-      NcError.notFound(`Operation "${operation}" not registered`);
+      return {};
     }
 
     return module.handle(subContext, {

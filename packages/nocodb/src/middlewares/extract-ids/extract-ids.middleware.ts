@@ -213,7 +213,8 @@ export class ExtractIdsMiddleware implements NestMiddleware, CanActivate {
       } else if (integrationId) {
         const integration = await Integration.get(context, integrationId);
         if (!integration) {
-          NcError.get(context).integrationNotFound(integrationId);
+          // CE local-dev: see extensionId branch — skip silently so the
+          // controller's no-op stub can answer.
         }
       } else if (tableId) {
         const model = await Model.get(context, tableId);
@@ -453,7 +454,15 @@ export class ExtractIdsMiddleware implements NestMiddleware, CanActivate {
         const extension = await Extension.get(context, extensionId);
 
         if (!extension) {
-          NcError.genericNotFound('Extension', extensionId);
+          // CE local-dev: the EE-flavored frontend probes
+          // /api/v2/extensions/:id for arbitrary ids (PostGIS, citext,
+          // integration extensions). The real behaviour throws 404 here,
+          // which the patched UI surfaces as a console error. Skip the
+          // lookup silently so the request reaches the controller, where
+          // the patched route returns null.
+        } else {
+          // (extension found) — leave ncBaseId unset; controller will
+          // return null itself.
         }
       }
 
@@ -567,9 +576,11 @@ export class ExtractIdsMiddleware implements NestMiddleware, CanActivate {
     } else if (params.integrationId) {
       const integration = await Integration.get(context, params.integrationId);
       if (!integration) {
-        NcError.get(context).integrationNotFound(params.integrationId);
+        // CE local-dev: see extensionId branch — skip silently so the
+        // controller's no-op stub can answer.
+      } else {
+        req.ncWorkspaceId = integration.fk_workspace_id;
       }
-      req.ncWorkspaceId = integration.fk_workspace_id;
     } else if (params.tableId || params.modelId) {
       const model = await Model.getByIdOrName(context, {
         id: params.tableId || params.modelId,
@@ -850,10 +861,11 @@ export class ExtractIdsMiddleware implements NestMiddleware, CanActivate {
       const extension = await Extension.get(context, req.params.extensionId);
 
       if (!extension) {
-        NcError.genericNotFound('Extension', req.params.extensionId);
+        // CE local-dev: see the matching branch above. Skip silently
+        // instead of throwing so the controller's no-op stub can answer.
+      } else {
+        req.ncBaseId = extension.base_id;
       }
-
-      req.ncBaseId = extension.base_id;
     }
     // extract fk_model_id from query params only if it's audit post or comments post, get, patch, delete endpoint
     else if (

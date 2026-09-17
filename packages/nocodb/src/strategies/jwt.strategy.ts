@@ -10,7 +10,7 @@ import Noco from '~/Noco';
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(options, private userService: UsersService) {
     super({
-      expiresIn: '10h',
+      expiresIn: '7d',
       ...options,
     });
   }

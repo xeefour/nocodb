@@ -116,6 +116,19 @@ import { McpService } from '~/mcp/mcp.service';
 import { McpController } from '~/mcp/mcp.controller';
 import { InternalController } from '~/controllers/internal.controller';
 import { WorkspaceUsersController } from '~/controllers/workspace-users.controller';
+import { BookmarksController } from '~/controllers/bookmarks.controller';
+import { RecordTemplatesController } from '~/controllers/record-templates.controller';
+import { CustomUrlController } from '~/controllers/custom-url.controller';
+import { CustomUrlRedirectController } from '~/controllers/custom-url-redirect.controller';
+import { SsoClientsController } from '~/controllers/sso-clients.controller';
+import { SkillsController } from '~/controllers/skills.controller';
+import { DashboardsController } from '~/controllers/dashboards.controller';
+// AStubController (formerly EeStubController) lives in
+// NotFoundHandlerModule (above) so its specific @All paths register
+// before the /api/v{1,2}/* wildcards. The "A" prefix ensures the
+// class sorts alphabetically before ExtensionsController and
+// IntegrationsController, which both have overlapping @Acl-decorated
+// routes that would otherwise shadow the catch-all.
 import { ViewRowColorV3Service } from '~/services/v3/view-row-color-v3.service';
 import { DependencyService } from '~/services/dependency.service';
 
@@ -239,6 +252,13 @@ export const nocoModuleMetadata = {
           IntegrationsController,
           InternalController,
           WorkspaceUsersController,
+          BookmarksController,
+          RecordTemplatesController,
+          CustomUrlController,
+          CustomUrlRedirectController,
+          SsoClientsController,
+          SkillsController,
+          DashboardsController,
 
           // MCP
           McpController,

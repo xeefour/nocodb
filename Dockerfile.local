@@ -1,0 +1,72 @@
+# syntax=docker/dockerfile:1.7
+# Patched CE build for local dev: flips isEE/isOnPrem constants to true.
+# Build context must be repo root. Resulting image replaces only the
+# rspack bundle inside nocodb/nocodb:latest.
+
+ARG NODE_VERSION=24
+
+# ---------- Stage 1: build rspack bundle ----------
+FROM node:${NODE_VERSION}-bookworm-slim AS builder
+
+ENV CI=true \
+    PNPM_HOME="/pnpm" \
+    PATH="/pnpm:$PATH"
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends python3 build-essential ca-certificates git \
+ && rm -rf /var/lib/apt/lists/* \
+ && corepack enable \
+ && corepack prepare pnpm@9.15.9 --activate
+
+WORKDIR /src
+
+# Workspace root + packages + lockfile
+COPY pnpm-workspace.yaml package.json pnpm-lock.yaml .npmrc ./
+COPY packages packages
+COPY scripts scripts
+COPY tsconfig.json ./
+
+# Install workspace deps. Skip postinstall scripts (e.g. `nuxt prepare`
+# in nc-gui) because we only build the rspack backend bundle, not the
+# Vue/Nuxt frontend.
+# nocodb-sdk is `allowlist`-ed in rspack externals (i.e. bundled in),
+# so we need a real built copy. Build it with tsc directly — the
+# swagger-generation step (pnpm generate:sdk) is only needed for the
+# SDK's own dev workflow, not for the rspack consumer.
+# Stub @noco-integrations/core dist since the rspack alias target
+# path is set in the EE-only build context.
+RUN pnpm install --frozen-lockfile --reporter=append-only --ignore-scripts \
+ && cd /src/packages/nocodb-sdk \
+ && npx tsc -p tsconfig.json 2>&1 | tail -20 \
+ && npx tsc-alias -p tsconfig.json 2>&1 | tail -10 \
+ && npx tsc -p tsconfig.module.json 2>&1 | tail -20 \
+ && npx tsc-alias -p tsconfig.module.json 2>&1 | tail -10 \
+ && cd /src \
+ && mkdir -p /src/packages/noco-integrations/core/dist \
+ && printf 'module.exports={setExternalDbSsrfEnforcement:()=>{}};' \
+        > /src/packages/noco-integrations/core/dist/index.js \
+ && printf 'export {};\nexport type IntegrationEntry = any;\nexport type IntegrationWrapper = any;\nexport type ClientType = any;\nexport type NcContext = any;\nexport const setExternalDbSsrfEnforcement: () => void = () => {};\n' \
+        > /src/packages/noco-integrations/core/dist/index.d.ts
+
+# Build nc-gui (Nuxt SPA, ssr:false → static output to .output/public/).
+# Skip postinstall (nuxt prepare) which would run unocss config and
+# fail on this slim image; nuxt build re-prepares internally.
+RUN cd /src/packages/nc-gui \
+ && NODE_ENV=production npx nuxt build 2>&1 | tail -50 \
+ && ls -la /src/packages/nc-gui/.output/ 2>&1 | tail -5
+
+# Build the rspack production bundle
+WORKDIR /src/packages/nocodb
+RUN npx rspack --config rspack.config.js 2>&1 | tail -50
+
+# ---------- Stage 2: runtime ----------
+FROM nocodb/nocodb:latest AS runtime
+
+# Replace bundled entry + copied public assets with our patched build.
+COPY --from=builder /src/packages/nocodb/dist/bundle.js /usr/src/app/docker/index.js
+COPY --from=builder /src/packages/nocodb/dist/public    /usr/src/app/public
+
+# Replace the official Nuxt build with our patched one (same source,
+# just rebuilt locally — content is identical). The backend serves
+# this directory as static UI.
+COPY --from=builder /src/packages/nc-gui/.output/public /usr/src/app/docker/nc-gui

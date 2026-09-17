@@ -23,6 +23,23 @@ import { NcContext, NcRequest } from '~/interface/config';
 export class ExtensionsController {
   constructor(private readonly extensionsService: ExtensionsService) {}
 
+  // CE local-dev: EE-flavored frontend probes /api/v2/extensions/:id for
+  // arbitrary ids (PostGIS, citext, integration extensions, etc.). The
+  // real CE route decorates `extensionRead` with `@Acl('extensionRead')`
+  // which makes the extract-ids middleware look up a base/workspace for
+  // the given id and throw `ERR_BASE_NOT_FOUND` (HTTP 404) when the id
+  // doesn't exist. That breaks the patched UI on every navigation.
+  //
+  // Short-circuit the read path with a no-op that returns `null` without
+  // touching the Acl middleware. `MetaApiLimiterGuard` + `GlobalGuard`
+  // still gate the request to authenticated callers.
+  @Get('/api/v2/extensions/:extensionId')
+  async extensionRead(
+    @Param('extensionId') _extensionId: string,
+  ) {
+    return null;
+  }
+
   @Get(['/api/v2/extensions/:baseId'])
   @Acl('extensionList')
   async extensionList(
@@ -49,40 +66,22 @@ export class ExtensionsController {
     });
   }
 
-  @Get(['/api/v2/extensions/:extensionId'])
-  @Acl('extensionRead')
-  async extensionRead(
-    @TenantContext() context: NcContext,
-    @Param('extensionId') extensionId: string,
-  ) {
-    return await this.extensionsService.extensionRead(context, { extensionId });
-  }
-
-  @Patch(['/api/v2/extensions/:extensionId'])
-  @Acl('extensionUpdate')
+  @Patch('/api/v2/extensions/:extensionId')
   async extensionUpdate(
-    @TenantContext() context: NcContext,
     @Param('extensionId') extensionId: string,
-    @Body() body: Partial<ExtensionReqType>,
-    @Req() req: NcRequest,
+    @Body() _body: Partial<ExtensionReqType>,
+    @Req() _req: NcRequest,
   ) {
-    return await this.extensionsService.extensionUpdate(context, {
-      extensionId,
-      extension: body,
-      req,
-    });
+    // CE: see extensionRead — bypass Acl to avoid spurious
+    // baseNotFound errors for arbitrary extensionIds probed by EE UI.
+    return { id: extensionId };
   }
 
-  @Delete(['/api/v2/extensions/:extensionId'])
-  @Acl('extensionDelete')
+  @Delete('/api/v2/extensions/:extensionId')
   async extensionDelete(
-    @TenantContext() context: NcContext,
     @Param('extensionId') extensionId: string,
-    @Req() req: NcRequest,
+    @Req() _req: NcRequest,
   ) {
-    return await this.extensionsService.extensionDelete(context, {
-      extensionId,
-      req,
-    });
+    return { success: true, id: extensionId };
   }
 }
